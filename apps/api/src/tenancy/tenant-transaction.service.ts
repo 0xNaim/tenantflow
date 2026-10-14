@@ -6,7 +6,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 export class TenantTransactionService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async run<T>(
+  async withTenantContext<T>(
     userId: string,
     tenantId: string,
     work: (tx: Prisma.TransactionClient) => Promise<T>,
