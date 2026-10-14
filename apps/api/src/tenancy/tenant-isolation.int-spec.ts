@@ -128,7 +128,7 @@ describe('Tenant isolation (PostgreSQL RLS)', () => {
   });
 
   it('hides other tenants projects without a tenant filter', async () => {
-    const projects = await tenancy.run(userA.id, tenantA.id, (tx) =>
+    const projects = await tenancy.withTenantContext(userA.id, tenantA.id, (tx) =>
       tx.project.findMany(),
     );
 
@@ -138,7 +138,7 @@ describe('Tenant isolation (PostgreSQL RLS)', () => {
   });
 
   it('blocks cross-tenant updates', async () => {
-    const result = await tenancy.run(userA.id, tenantA.id, (tx) =>
+    const result = await tenancy.withTenantContext(userA.id, tenantA.id, (tx) =>
       tx.project.updateMany({
         where: { id: projectB.id },
         data: { name: 'Unauthorized modification' },
@@ -149,7 +149,7 @@ describe('Tenant isolation (PostgreSQL RLS)', () => {
   });
 
   it('blocks cross-tenant deletes', async () => {
-    const result = await tenancy.run(userA.id, tenantA.id, (tx) =>
+    const result = await tenancy.withTenantContext(userA.id, tenantA.id, (tx) =>
       tx.project.deleteMany({
         where: { id: projectB.id },
       }),
@@ -159,7 +159,7 @@ describe('Tenant isolation (PostgreSQL RLS)', () => {
   });
 
   it('denies access when the membership is inactive', async () => {
-    await tenancy.run(userA.id, tenantA.id, (tx) =>
+    await tenancy.withTenantContext(userA.id, tenantA.id, (tx) =>
       tx.membership.update({
         where: {
           tenantId_userId: {
@@ -172,7 +172,7 @@ describe('Tenant isolation (PostgreSQL RLS)', () => {
     );
 
     await expect(
-      tenancy.run(userA.id, tenantA.id, (tx) => tx.project.findMany()),
+      tenancy.withTenantContext(userA.id, tenantA.id, (tx) => tx.project.findMany()),
     ).rejects.toThrow('Active tenant membership required');
 
     await prisma.$transaction(async (tx) => {
@@ -193,7 +193,7 @@ describe('Tenant isolation (PostgreSQL RLS)', () => {
   });
 
   it('does not leak tenant context after a transaction', async () => {
-    await tenancy.run(userA.id, tenantA.id, (tx) => tx.project.findMany());
+    await tenancy.withTenantContext(userA.id, tenantA.id, (tx) => tx.project.findMany());
 
     const projects = await prisma.project.findMany();
 
