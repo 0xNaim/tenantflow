@@ -4,6 +4,7 @@ import Joi from 'joi';
 import { HealthModule } from './health/health.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { RedisModule } from './redis/redis.module.js';
+import { TenancyModule } from './tenancy/tenancy.module.js';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { RedisModule } from './redis/redis.module.js';
     PrismaModule,
     RedisModule,
     HealthModule,
+    TenancyModule,
   ],
 })
 export class AppModule {}

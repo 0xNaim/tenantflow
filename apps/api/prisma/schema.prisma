@@ -13,6 +13,34 @@ enum MembershipStatus {
   REMOVED
 }
 
+enum SessionStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum MfaFactorType {
+  TOTP
+}
+
+enum MfaFactorStatus {
+  PENDING
+  ACTIVE
+  DISABLED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+
 model User {
   id              String    @id @default(cuid())
   email           String    @unique
@@ -22,7 +50,12 @@ model User {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  memberships Membership[]
+  memberships     Membership[]
+  sessions        Session[]
+  mfaFactors      MfaFactor[]
+  emailChallenges EmailVerificationToken[]
+  passwordResets  PasswordResetToken[]
+  auditLogs       AuditLog[]               @relation("AuditActor")
 
   @@index([disabledAt])
 }
@@ -35,6 +68,10 @@ model Tenant {
   updatedAt DateTime @updatedAt
 
   memberships Membership[]
+  roles       Role[]
+  invitations Invitation[]
+  projects    Project[]
+  auditLogs   AuditLog[]
 }
 
 model Membership {
@@ -49,7 +86,233 @@ model Membership {
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
+  roles              MembershipRole[]
+  projectMemberships ProjectMember[]
+  sentInvitations    Invitation[]     @relation("InvitationInviter")
+
   @@unique([tenantId, userId])
   @@unique([tenantId, id])
   @@index([userId, status])
+  @@index([tenantId, status])
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+
+  roles RolePermission[]
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  memberships MembershipRole[]
+  permissions RolePermission[]
+
+  @@unique([tenantId, name])
+  @@unique([tenantId, id])
+  @@index([tenantId])
+}
+
+model MembershipRole {
+  tenantId     String
+  membershipId String
+  roleId       String
+  createdAt    DateTime @default(now())
+
+  membership Membership @relation(fields: [tenantId, membershipId], references: [tenantId, id], onDelete: Cascade)
+
+  role Role @relation(fields: [tenantId, roleId], references: [tenantId, id], onDelete: Restrict)
+
+  @@id([tenantId, membershipId, roleId])
+  @@index([tenantId, roleId])
+}
+
+model RolePermission {
+  tenantId     String
+  roleId       String
+  permissionId String
+  createdAt    DateTime @default(now())
+
+  role Role @relation(fields: [tenantId, roleId], references: [tenantId, id], onDelete: Cascade)
+
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
+
+  @@id([tenantId, roleId, permissionId])
+  @@index([permissionId])
+}
+
+model Session {
+  id                 String        @id @default(cuid())
+  userId             String
+  status             SessionStatus @default(ACTIVE)
+  userAgent          String?
+  ipAddress          String?
+  mfaAuthenticatedAt DateTime?
+  lastSeenAt         DateTime?
+  expiresAt          DateTime
+  revokedAt          DateTime?
+  createdAt          DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  refreshTokens RefreshToken[]
+
+  @@index([userId, status])
+  @@index([expiresAt])
+}
+
+model RefreshToken {
+  id           String    @id @default(cuid())
+  sessionId    String
+  tokenHash    String    @unique
+  familyId     String
+  replacedById String?   @unique
+  expiresAt    DateTime
+  usedAt       DateTime?
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+
+  replacedBy RefreshToken? @relation("RefreshTokenRotation", fields: [replacedById], references: [id], onDelete: Restrict)
+
+  replacements RefreshToken[] @relation("RefreshTokenRotation")
+
+  @@index([sessionId, expiresAt])
+  @@index([familyId])
+}
+
+model MfaFactor {
+  id              String          @id @default(cuid())
+  userId          String
+  type            MfaFactorType   @default(TOTP)
+  status          MfaFactorStatus @default(PENDING)
+  secretEncrypted String?
+  confirmedAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  recoveryCodes RecoveryCode[]
+
+  @@index([userId, status])
+}
+
+model RecoveryCode {
+  id          String    @id @default(cuid())
+  mfaFactorId String
+  codeHash    String    @unique
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  mfaFactor MfaFactor @relation(fields: [mfaFactorId], references: [id], onDelete: Cascade)
+
+  @@index([mfaFactorId, usedAt])
+}
+
+model EmailVerificationToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model PasswordResetToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model Invitation {
+  id                    String           @id @default(cuid())
+  tenantId              String
+  invitedByMembershipId String
+  email                 String
+  tokenHash             String           @unique
+  status                InvitationStatus @default(PENDING)
+  expiresAt             DateTime
+  acceptedAt            DateTime?
+  createdAt             DateTime         @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  invitedBy Membership @relation("InvitationInviter", fields: [tenantId, invitedByMembershipId], references: [tenantId, id], onDelete: Restrict)
+
+  @@index([tenantId, email, status])
+  @@index([expiresAt])
+}
+
+model Project {
+  id        String        @id @default(cuid())
+  tenantId  String
+  name      String
+  status    ProjectStatus @default(ACTIVE)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  members ProjectMember[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, status, createdAt])
+}
+
+model ProjectMember {
+  tenantId     String
+  projectId    String
+  membershipId String
+  createdAt    DateTime @default(now())
+
+  project Project @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: Cascade)
+
+  membership Membership @relation(fields: [tenantId, membershipId], references: [tenantId, id], onDelete: Cascade)
+
+  @@id([tenantId, projectId, membershipId])
+  @@index([tenantId, membershipId])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  tenantId     String?
+  actorUserId  String?
+  action       String
+  resourceType String?
+  resourceId   String?
+  requestId    String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  actor User? @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([resourceType, resourceId])
 }

@@ -13,7 +13,8 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main"
+    "start:prod": "node dist/main",
+    "test:int": "vitest run --config vitest.config.int.ts"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",
@@ -33,8 +34,9 @@
     "@nestjs/testing": "^12.0.1",
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
-    "@types/supertest": "^7.0.0",
+    "@types/supertest": "^7.2.1",
     "@vitest/coverage-v8": "^4.1.2",
+    "dotenv": "^18.0.7",
     "oxlint": "^1.58.0",
     "oxlint-tsgolint": "^7.0.2001",
     "prettier": "^3.4.2",
