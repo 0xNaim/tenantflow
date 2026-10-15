@@ -7,6 +7,7 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { AuthService } from '../auth.service.js';
 import { ConfirmTotpDto } from './dto/confirm-totp.dto.js';
 import { VerifyMfaChallengeDto } from './dto/verify-mfa-challenge.dto.js';
 import { MfaService } from './mfa.service.js';
@@ -20,7 +21,10 @@ interface AuthenticatedRequest extends Request {
 
 @Controller('auth/mfa')
 export class MfaController {
-  constructor(private readonly mfaService: MfaService) {}
+  constructor(
+    private readonly mfaService: MfaService,
+    private readonly authService: AuthService,
+  ) {}
 
   @Post('enroll')
   @HttpCode(HttpStatus.OK)
@@ -39,9 +43,6 @@ export class MfaController {
   async verifyChallenge(@Body() dto: VerifyMfaChallengeDto) {
     const userId = await this.mfaService.verifyChallenge(dto);
 
-    return {
-      verified: true,
-      userId,
-    };
+    return this.authService.completeMfaLogin(userId);
   }
 }

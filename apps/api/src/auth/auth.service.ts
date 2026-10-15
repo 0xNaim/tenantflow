@@ -203,6 +203,26 @@ export class AuthService {
       };
     }
 
+    return this.completeLogin(user.id, { mfaAuthenticated: false });
+  }
+
+  async completeMfaLogin(userId: string) {
+    return this.completeLogin(userId, { mfaAuthenticated: true });
+  }
+
+  private async completeLogin(
+    userId: string,
+    options: { mfaAuthenticated: boolean },
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, emailVerifiedAt: true },
+    });
+
+    if (!user || !user.emailVerifiedAt) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
     const now = new Date();
     const sessionExpiresAt = new Date(
       now.getTime() + this.refreshTtlDays * 24 * 60 * 60 * 1000,
@@ -218,6 +238,7 @@ export class AuthService {
           status: 'ACTIVE',
           expiresAt: sessionExpiresAt,
           lastSeenAt: now,
+          mfaAuthenticatedAt: options.mfaAuthenticated ? now : null,
         },
         select: { id: true },
       });
@@ -238,6 +259,7 @@ export class AuthService {
       {
         sub: user.id,
         sid: session.id,
+        purpose: 'access',
       },
       {
         secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
