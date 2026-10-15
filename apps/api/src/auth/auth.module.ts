@@ -8,6 +8,9 @@ import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { EmailService } from './email.service.js';
 import { JwtStrategy } from './jwt.strategy.js';
+import { MfaCryptoService } from './mfa/mfa-crypto.service.js';
+import { MfaController } from './mfa/mfa.controller.js';
+import { MfaService } from './mfa/mfa.service.js';
 import { PasswordService } from './password.service.js';
 
 @Module({
@@ -24,8 +27,15 @@ import { PasswordService } from './password.service.js';
       },
     ]),
   ],
-  providers: [AuthService, PasswordService, EmailService, JwtStrategy],
-  controllers: [AuthController],
+  providers: [
+    AuthService,
+    PasswordService,
+    EmailService,
+    JwtStrategy,
+    MfaService,
+    MfaCryptoService,
+  ],
+  controllers: [AuthController, MfaController],
   exports: [AuthService],
 })
 export class AuthModule {}
