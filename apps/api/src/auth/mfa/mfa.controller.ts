@@ -5,11 +5,10 @@ import {
   HttpStatus,
   Post,
   Req,
-  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { JwtAuthGuard } from '../jwt-auth.guard.js';
 import { ConfirmTotpDto } from './dto/confirm-totp.dto.js';
+import { VerifyMfaChallengeDto } from './dto/verify-mfa-challenge.dto.js';
 import { MfaService } from './mfa.service.js';
 
 interface AuthenticatedRequest extends Request {
@@ -19,8 +18,7 @@ interface AuthenticatedRequest extends Request {
   };
 }
 
-@Controller('auth/mfa/totp')
-@UseGuards(JwtAuthGuard)
+@Controller('auth/mfa')
 export class MfaController {
   constructor(private readonly mfaService: MfaService) {}
 
@@ -34,5 +32,16 @@ export class MfaController {
   @HttpCode(HttpStatus.OK)
   confirm(@Req() req: AuthenticatedRequest, @Body() dto: ConfirmTotpDto) {
     return this.mfaService.confirmTotp(req.user.userId, dto.code);
+  }
+
+  @Post('challenge/verify')
+  @HttpCode(HttpStatus.OK)
+  async verifyChallenge(@Body() dto: VerifyMfaChallengeDto) {
+    const userId = await this.mfaService.verifyChallenge(dto);
+
+    return {
+      verified: true,
+      userId,
+    };
   }
 }

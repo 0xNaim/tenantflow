@@ -185,6 +185,24 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    const activeTotp = await this.prisma.mfaFactor.findFirst({
+      where: {
+        userId: user.id,
+        type: 'TOTP',
+        status: 'ACTIVE',
+      },
+    });
+
+    if (activeTotp) {
+      const challengeToken = await this.createMfaChallenge(user.id);
+
+      return {
+        requiresMfa: true,
+        challengeToken,
+        expiresIn: 300,
+      };
+    }
+
     const now = new Date();
     const sessionExpiresAt = new Date(
       now.getTime() + this.refreshTtlDays * 24 * 60 * 60 * 1000,
@@ -235,6 +253,24 @@ export class AuthService {
       tokenType: 'Bearer',
       expiresIn: this.accessTtlSeconds,
     };
+  }
+
+  private async createMfaChallenge(userId: string): Promise<string> {
+    const secret = this.config.getOrThrow<string>('JWT_MFA_CHALLENGE_SECRET');
+
+    return this.jwt.signAsync(
+      {
+        sub: userId,
+        purpose: 'mfa_challenge',
+      },
+      {
+        secret,
+        algorithm: 'HS256',
+        expiresIn: '5m',
+        issuer: this.config.getOrThrow<string>('JWT_ISSUER'),
+        audience: 'tenantflow-mfa-challenge',
+      },
+    );
   }
 
   async refresh(rawToken: string) {

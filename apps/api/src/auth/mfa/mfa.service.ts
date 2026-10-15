@@ -5,13 +5,21 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import type { JwtPayload } from 'jsonwebtoken';
 import { createHash, randomBytes } from 'node:crypto';
 import { authenticator } from 'otplib';
 import * as QRCode from 'qrcode';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { VerifyMfaChallengeDto } from './dto/verify-mfa-challenge.dto.js';
 import { MfaCryptoService } from './mfa-crypto.service.js';
 
 const RECOVERY_CODE_COUNT = 10;
+
+interface MfaChallengePayload extends JwtPayload {
+  sub: string;
+  purpose: 'mfa_challenge';
+}
 
 @Injectable()
 export class MfaService {
@@ -19,6 +27,7 @@ export class MfaService {
     private readonly prisma: PrismaService,
     private readonly crypto: MfaCryptoService,
     private readonly config: ConfigService,
+    private readonly jwt: JwtService,
   ) {}
 
   private hashRecoveryCode(code: string): string {
@@ -144,5 +153,130 @@ export class MfaService {
       message: 'Two-factor authentication enabled',
       recoveryCodes,
     };
+  }
+
+  async verifyChallenge(dto: VerifyMfaChallengeDto): Promise<string> {
+    const secret = this.config.getOrThrow<string>('JWT_MFA_CHALLENGE_SECRET');
+
+    let payload: MfaChallengePayload;
+
+    try {
+      payload = await this.jwt.verifyAsync<MfaChallengePayload>(
+        dto.challengeToken,
+        {
+          secret,
+          algorithms: ['HS256'],
+          issuer: this.config.getOrThrow<string>('JWT_ISSUER'),
+          audience: 'tenantflow-mfa-challenge',
+        },
+      );
+    } catch {
+      throw new UnauthorizedException('Invalid or expired MFA challenge');
+    }
+
+    if (
+      payload.purpose !== 'mfa_challenge' ||
+      typeof payload.sub !== 'string' ||
+      !payload.sub
+    ) {
+      throw new UnauthorizedException('Invalid MFA challenge');
+    }
+
+    const userId = payload.sub;
+
+    const factor = await this.prisma.mfaFactor.findFirst({
+      where: {
+        userId,
+        type: 'TOTP',
+        status: 'ACTIVE',
+      },
+    });
+
+    if (!factor) {
+      throw new UnauthorizedException('MFA factor is not active');
+    }
+
+    if (dto.method === 'totp') {
+      await this.verifyTotpOnce(userId, factor, dto.code);
+    } else if (dto.method === 'recovery') {
+      await this.consumeRecoveryCode(factor.id, dto.code);
+    } else {
+      throw new UnauthorizedException('Invalid MFA method');
+    }
+
+    return userId;
+  }
+
+  private async verifyTotpOnce(
+    userId: string,
+    factor: {
+      id: string;
+      secretEncrypted: string | null;
+      lastUsedStep: number | null;
+    },
+    code: string,
+  ): Promise<void> {
+    if (!/^\d{6}$/.test(code)) {
+      throw new UnauthorizedException('Invalid MFA code');
+    }
+
+    if (!factor.secretEncrypted) {
+      throw new UnauthorizedException('MFA factor is not active');
+    }
+
+    const secret = this.crypto.decrypt(factor.secretEncrypted);
+    const delta = authenticator.checkDelta(code, secret);
+
+    if (delta === null) {
+      throw new UnauthorizedException('Invalid MFA code');
+    }
+
+    const acceptedStep = Math.floor(Date.now() / 30_000) + delta;
+
+    const result = await this.prisma.mfaFactor.updateMany({
+      where: {
+        id: factor.id,
+        userId,
+        status: 'ACTIVE',
+        OR: [{ lastUsedStep: null }, { lastUsedStep: { lt: acceptedStep } }],
+      },
+      data: {
+        lastUsedStep: acceptedStep,
+      },
+    });
+
+    if (result.count !== 1) {
+      throw new UnauthorizedException(
+        'MFA code has already been used or is no longer valid',
+      );
+    }
+  }
+
+  private async consumeRecoveryCode(
+    mfaFactorId: string,
+    code: string,
+  ): Promise<void> {
+    const normalized = code.replace(/-/g, '').toUpperCase();
+
+    if (!/^[A-F0-9]{16}$/.test(normalized)) {
+      throw new UnauthorizedException('Invalid recovery code');
+    }
+
+    const codeHash = this.hashRecoveryCode(normalized);
+
+    const result = await this.prisma.recoveryCode.updateMany({
+      where: {
+        mfaFactorId,
+        codeHash,
+        usedAt: null,
+      },
+      data: {
+        usedAt: new Date(),
+      },
+    });
+
+    if (result.count !== 1) {
+      throw new UnauthorizedException('Invalid or already used recovery code');
+    }
   }
 }

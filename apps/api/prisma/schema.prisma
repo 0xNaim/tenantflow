@@ -203,6 +203,7 @@ model MfaFactor {
   confirmedAt     DateTime?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
+  lastUsedStep Int?
 
   user User @relation(fields: [userId], references: [id], onDelete: Restrict)
 
