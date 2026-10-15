@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   Logger,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -527,5 +528,106 @@ export class AuthService {
     }
 
     return { message: 'Password reset successfully' };
+  }
+
+  async listSessions(userId: string, currentSessionId: string) {
+    const sessions = await this.prisma.session.findMany({
+      where: {
+        userId,
+        status: 'ACTIVE',
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        createdAt: true,
+        lastSeenAt: true,
+        expiresAt: true,
+        status: true,
+      },
+    });
+
+    return {
+      sessions: sessions.map((session) => ({
+        ...session,
+        isCurrent: session.id === currentSessionId,
+      })),
+    };
+  }
+
+  async revokeSession(userId: string, sessionId: string) {
+    const now = new Date();
+
+    const revoked = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.session.updateMany({
+        where: {
+          id: sessionId,
+          userId,
+          status: 'ACTIVE',
+        },
+        data: {
+          status: 'REVOKED',
+          revokedAt: now,
+        },
+      });
+
+      if (result.count === 1) {
+        await tx.refreshToken.updateMany({
+          where: {
+            sessionId,
+            revokedAt: null,
+          },
+          data: { revokedAt: now },
+        });
+      }
+
+      return result.count;
+    });
+
+    if (revoked !== 1) {
+      // Do not disclose whether another user's session exists.
+      throw new NotFoundException('Session not found');
+    }
+
+    return { message: 'Session revoked successfully' };
+  }
+
+  async logoutAllSessions(userId: string) {
+    const now = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      const activeSessions = await tx.session.findMany({
+        where: {
+          userId,
+          status: 'ACTIVE',
+        },
+        select: { id: true },
+      });
+
+      const sessionIds = activeSessions.map(({ id }) => id);
+
+      await tx.session.updateMany({
+        where: {
+          userId,
+          status: 'ACTIVE',
+        },
+        data: {
+          status: 'REVOKED',
+          revokedAt: now,
+        },
+      });
+
+      if (sessionIds.length > 0) {
+        await tx.refreshToken.updateMany({
+          where: {
+            sessionId: { in: sessionIds },
+            revokedAt: null,
+          },
+          data: { revokedAt: now },
+        });
+      }
+    });
+
+    return { message: 'All sessions revoked successfully' };
   }
 }
