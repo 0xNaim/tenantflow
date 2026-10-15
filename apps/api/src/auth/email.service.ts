@@ -42,4 +42,36 @@ export class EmailService {
       ].join('\n'),
     });
   }
+
+  async sendPasswordResetEmail(email: string, token: string): Promise<void> {
+    const host = this.config.getOrThrow<string>('SMTP_HOST');
+    const port = Number(this.config.getOrThrow<string>('SMTP_PORT'));
+    const user = this.config.getOrThrow<string>('SMTP_USER');
+    const pass = this.config.getOrThrow<string>('SMTP_PASSWORD');
+    const from = this.config.getOrThrow<string>('SMTP_FROM');
+    const appBaseUrl = this.config.getOrThrow<string>('APP_BASE_URL');
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: port === 465,
+      auth: { user, pass },
+    });
+
+    const resetUrl = new URL('/reset-password', appBaseUrl);
+    resetUrl.searchParams.set('token', token);
+
+    await transporter.sendMail({
+      from,
+      to: email,
+      subject: 'Reset your TenantFlow password',
+      text: [
+        'A password reset was requested for your account.',
+        `Reset your password using this link: ${resetUrl.toString()}`,
+        '',
+        'This link expires in 15 minutes.',
+        'If you did not request this, ignore this email.',
+      ].join('\n'),
+    });
+  }
 }

@@ -9,7 +9,9 @@ import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
+import { ResetPasswordDto } from './dto/reset-password.dto.js';
 import { EmailService } from './email.service.js';
 import { PasswordService } from './password.service.js';
 
@@ -392,5 +394,138 @@ export class AuthService {
     });
 
     return { message: 'Logged out successfully' };
+  }
+
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const email = dto.email.trim().toLowerCase();
+
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true, email: true },
+    });
+
+    // Same response whether the account exists or not.
+    if (!user) {
+      return {
+        message: 'If the account exists, reset instructions will be sent.',
+      };
+    }
+
+    const rawToken = randomBytes(32).toString('base64url');
+    const tokenHash = this.hashToken(rawToken);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 15 * 60 * 1000);
+
+    await this.prisma.$transaction(async (tx) => {
+      // Invalidate earlier outstanding reset tokens.
+      await tx.passwordResetToken.updateMany({
+        where: {
+          userId: user.id,
+          consumedAt: null,
+        },
+        data: { consumedAt: now },
+      });
+
+      await tx.passwordResetToken.create({
+        data: {
+          userId: user.id,
+          tokenHash,
+          expiresAt,
+        },
+      });
+    });
+
+    try {
+      await this.email.sendPasswordResetEmail(user.email, rawToken);
+    } catch (error) {
+      this.logger.error(
+        'Password reset email delivery failed',
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+
+    return {
+      message: 'If the account exists, reset instructions will be sent.',
+    };
+  }
+
+  async resetPassword(dto: ResetPasswordDto) {
+    const tokenHash = this.hashToken(dto.token);
+    const now = new Date();
+    const passwordHash = await this.passwords.hash(dto.newPassword);
+
+    const reset = await this.prisma.$transaction(async (tx) => {
+      const token = await tx.passwordResetToken.findFirst({
+        where: {
+          tokenHash,
+          consumedAt: null,
+          expiresAt: { gt: now },
+        },
+        select: { id: true, userId: true },
+      });
+
+      if (!token) {
+        return false;
+      }
+
+      // Atomically consume the token; it can succeed only once.
+      const consumed = await tx.passwordResetToken.updateMany({
+        where: {
+          id: token.id,
+          consumedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: { consumedAt: now },
+      });
+
+      if (consumed.count !== 1) {
+        return false;
+      }
+
+      await tx.user.update({
+        where: { id: token.userId },
+        data: { passwordHash },
+      });
+
+      // Revoke all sessions for this user.
+      const sessions = await tx.session.findMany({
+        where: {
+          userId: token.userId,
+          status: 'ACTIVE',
+        },
+        select: { id: true },
+      });
+
+      const sessionIds = sessions.map((session) => session.id);
+
+      await tx.session.updateMany({
+        where: {
+          userId: token.userId,
+          status: 'ACTIVE',
+        },
+        data: {
+          status: 'REVOKED',
+          revokedAt: now,
+        },
+      });
+
+      if (sessionIds.length > 0) {
+        await tx.refreshToken.updateMany({
+          where: {
+            sessionId: { in: sessionIds },
+            revokedAt: null,
+          },
+          data: { revokedAt: now },
+        });
+      }
+
+      return true;
+    });
+
+    if (!reset) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    return { message: 'Password reset successfully' };
   }
 }
