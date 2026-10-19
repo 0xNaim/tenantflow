@@ -278,12 +278,24 @@ export class AuthService {
   }
 
   private async createMfaChallenge(userId: string): Promise<string> {
+    const challengeId = randomUUID();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    await this.prisma.mfaChallenge.create({
+      data: {
+        id: challengeId,
+        userId,
+        expiresAt,
+      },
+    });
+
     const secret = this.config.getOrThrow<string>('JWT_MFA_CHALLENGE_SECRET');
 
     return this.jwt.signAsync(
       {
         sub: userId,
         purpose: 'mfa_challenge',
+        jti: challengeId,
       },
       {
         secret,

@@ -19,6 +19,7 @@ const RECOVERY_CODE_COUNT = 10;
 interface MfaChallengePayload extends JwtPayload {
   sub: string;
   purpose: 'mfa_challenge';
+  jti: string;
 }
 
 @Injectable()
@@ -177,12 +178,13 @@ export class MfaService {
     if (
       payload.purpose !== 'mfa_challenge' ||
       typeof payload.sub !== 'string' ||
-      !payload.sub
+      typeof payload.jti !== 'string'
     ) {
       throw new UnauthorizedException('Invalid MFA challenge');
     }
 
     const userId = payload.sub;
+    const challengeId = payload.jti;
 
     const factor = await this.prisma.mfaFactor.findFirst({
       where: {
@@ -202,6 +204,26 @@ export class MfaService {
       await this.consumeRecoveryCode(factor.id, dto.code);
     } else {
       throw new UnauthorizedException('Invalid MFA method');
+    }
+
+    const consumed = await this.prisma.mfaChallenge.updateMany({
+      where: {
+        id: challengeId,
+        userId,
+        expiresAt: {
+          gt: new Date(),
+        },
+        consumedAt: null,
+      },
+      data: {
+        consumedAt: new Date(),
+      },
+    });
+
+    if (consumed.count !== 1) {
+      throw new UnauthorizedException(
+        'MFA challenge has expired or already been used',
+      );
     }
 
     return userId;

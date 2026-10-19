@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -54,6 +54,7 @@ model User {
   memberships     Membership[]
   sessions        Session[]
   mfaFactors      MfaFactor[]
+  mfaChallenges   MfaChallenge[]
   emailChallenges EmailVerificationToken[]
   passwordResets  PasswordResetToken[]
   auditLogs       AuditLog[]               @relation("AuditActor")
@@ -203,13 +204,25 @@ model MfaFactor {
   confirmedAt     DateTime?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
-  lastUsedStep Int?
+  lastUsedStep    Int?
 
   user User @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   recoveryCodes RecoveryCode[]
 
   @@index([userId, status])
+}
+
+model MfaChallenge {
+  id         String    @id @default(uuid())
+  userId     String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
 }
 
 model RecoveryCode {
