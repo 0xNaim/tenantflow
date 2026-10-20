@@ -4,14 +4,14 @@ import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
 export class TenantTransactionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prismaService: PrismaService) {}
 
   async withTenantContext<T>(
     userId: string,
     tenantId: string,
     work: (tx: Prisma.TransactionClient) => Promise<T>,
   ): Promise<T> {
-    return this.prisma.$transaction(
+    return this.prismaService.$transaction(
       async (tx) => {
         await tx.$queryRaw`
           SELECT set_config(

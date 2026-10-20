@@ -6,8 +6,8 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 export class MfaCryptoService {
   private readonly key: Buffer;
 
-  constructor(config: ConfigService) {
-    const encoded = config.getOrThrow<string>('MFA_ENCRYPTION_KEY');
+  constructor(configService: ConfigService) {
+    const encoded = configService.getOrThrow<string>('MFA_ENCRYPTION_KEY');
     this.key = Buffer.from(encoded, 'base64');
 
     if (this.key.length !== 32) {

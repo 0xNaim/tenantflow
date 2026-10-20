@@ -4,15 +4,15 @@ import nodemailer from 'nodemailer';
 
 @Injectable()
 export class EmailService {
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly configService: ConfigService) {}
 
   async sendVerificationEmail(email: string, token: string): Promise<void> {
-    const host = this.config.getOrThrow<string>('SMTP_HOST');
-    const port = Number(this.config.getOrThrow<string>('SMTP_PORT'));
-    const user = this.config.getOrThrow<string>('SMTP_USER');
-    const pass = this.config.getOrThrow<string>('SMTP_PASSWORD');
-    const from = this.config.getOrThrow<string>('SMTP_FROM');
-    const appBaseUrl = this.config.getOrThrow<string>('APP_BASE_URL');
+    const host = this.configService.getOrThrow<string>('SMTP_HOST');
+    const port = Number(this.configService.getOrThrow<string>('SMTP_PORT'));
+    const user = this.configService.getOrThrow<string>('SMTP_USER');
+    const pass = this.configService.getOrThrow<string>('SMTP_PASSWORD');
+    const from = this.configService.getOrThrow<string>('SMTP_FROM');
+    const appBaseUrl = this.configService.getOrThrow<string>('APP_BASE_URL');
 
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
       throw new Error('Invalid SMTP_PORT configuration');
@@ -44,12 +44,12 @@ export class EmailService {
   }
 
   async sendPasswordResetEmail(email: string, token: string): Promise<void> {
-    const host = this.config.getOrThrow<string>('SMTP_HOST');
-    const port = Number(this.config.getOrThrow<string>('SMTP_PORT'));
-    const user = this.config.getOrThrow<string>('SMTP_USER');
-    const pass = this.config.getOrThrow<string>('SMTP_PASSWORD');
-    const from = this.config.getOrThrow<string>('SMTP_FROM');
-    const appBaseUrl = this.config.getOrThrow<string>('APP_BASE_URL');
+    const host = this.configService.getOrThrow<string>('SMTP_HOST');
+    const port = Number(this.configService.getOrThrow<string>('SMTP_PORT'));
+    const user = this.configService.getOrThrow<string>('SMTP_USER');
+    const pass = this.configService.getOrThrow<string>('SMTP_PASSWORD');
+    const from = this.configService.getOrThrow<string>('SMTP_FROM');
+    const appBaseUrl = this.configService.getOrThrow<string>('APP_BASE_URL');
 
     const transporter = nodemailer.createTransport({
       host,

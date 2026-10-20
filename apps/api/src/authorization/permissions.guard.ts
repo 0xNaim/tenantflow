@@ -23,7 +23,7 @@ interface AuthenticatedRequest {
 export class PermissionsGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly tenantTransactions: TenantTransactionService,
+    private readonly tenantTransactionService: TenantTransactionService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -52,67 +52,68 @@ export class PermissionsGuard implements CanActivate {
       throw new ForbiddenException('Tenant context required');
     }
 
-    const hasAllPermissions = await this.tenantTransactions.withTenantContext(
-      userId,
-      tenantId,
-      async (tx) => {
-        const membership = await tx.membership.findFirst({
-          where: {
-            userId,
-            tenantId,
-            status: 'ACTIVE',
-          },
-          select: { id: true },
-        });
+    const hasAllPermissions =
+      await this.tenantTransactionService.withTenantContext(
+        userId,
+        tenantId,
+        async (tx) => {
+          const membership = await tx.membership.findFirst({
+            where: {
+              userId,
+              tenantId,
+              status: 'ACTIVE',
+            },
+            select: { id: true },
+          });
 
-        if (!membership) {
-          return false;
-        }
+          if (!membership) {
+            return false;
+          }
 
-        const assignments = await tx.membershipRole.findMany({
-          where: {
-            tenantId,
-            membershipId: membership.id,
-          },
-          select: { roleId: true },
-        });
+          const assignments = await tx.membershipRole.findMany({
+            where: {
+              tenantId,
+              membershipId: membership.id,
+            },
+            select: { roleId: true },
+          });
 
-        const roleIds = assignments.map(({ roleId }) => roleId);
+          const roleIds = assignments.map(({ roleId }) => roleId);
 
-        if (roleIds.length === 0) {
-          return false;
-        }
+          if (roleIds.length === 0) {
+            return false;
+          }
 
-        const rolePermissions = await tx.rolePermission.findMany({
-          where: {
-            tenantId,
-            roleId: { in: roleIds },
-          },
-          select: { permissionId: true },
-        });
+          const rolePermissions = await tx.rolePermission.findMany({
+            where: {
+              tenantId,
+              roleId: { in: roleIds },
+            },
+            select: { permissionId: true },
+          });
 
-        const permissionIds = [
-          ...new Set(rolePermissions.map(({ permissionId }) => permissionId)),
-        ];
+          const permissionIds = [
+            ...new Set(rolePermissions.map(({ permissionId }) => permissionId)),
+          ];
 
-        if (permissionIds.length === 0) {
-          return false;
-        }
+          if (permissionIds.length === 0) {
+            return false;
+          }
 
-        const permissions = await tx.permission.findMany({
-          where: {
-            id: { in: permissionIds },
-          },
-          select: { key: true },
-        });
+          const permissions = await tx.permission.findMany({
+            where: {
+              id: { in: permissionIds },
+            },
+            select: { key: true },
+          });
 
-        const granted = new Set(permissions.map(({ key }) => key));
+          const granted = new Set(permissions.map(({ key }) => key));
 
-        return requiredPermissions.every((permission) =>
-          granted.has(permission),
-        );
-      },
-    );
+          return requiredPermissions.every((permission) =>
+            granted.has(permission),
+          );
+        },
+      );
 
     if (!hasAllPermissions) {
       throw new ForbiddenException('Insufficient permissions');

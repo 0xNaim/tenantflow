@@ -11,8 +11,8 @@ import { RedisService } from '../redis/redis.service.js';
 @Controller('health')
 export class HealthController {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly redis: RedisService,
+    private readonly prismaService: PrismaService,
+    private readonly redisService: RedisService,
   ) {}
 
   @Get('live')
@@ -24,8 +24,8 @@ export class HealthController {
   @Get('ready')
   async readiness() {
     const results = await Promise.allSettled([
-      this.prisma.$queryRaw`SELECT 1`,
-      this.redis.client.ping(),
+      this.prismaService.$queryRaw`SELECT 1`,
+      this.redisService.client.ping(),
     ]);
 
     const databaseReady = results[0].status === 'fulfilled';

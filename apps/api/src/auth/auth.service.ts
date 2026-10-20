@@ -25,19 +25,19 @@ export class AuthService {
   private readonly refreshTtlDays: number;
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly passwords: PasswordService,
-    private readonly email: EmailService,
-    private readonly config: ConfigService,
-    private readonly jwt: JwtService,
-    private readonly rateLimitService: MfaRateLimitService,
+    private readonly prismaService: PrismaService,
+    private readonly passwordService: PasswordService,
+    private readonly emailService: EmailService,
+    private readonly configService: ConfigService,
+    private readonly jwtService: JwtService,
+    private readonly mfaRateLimitService: MfaRateLimitService,
   ) {
     this.accessTtlSeconds = Number(
-      this.config.getOrThrow<string>('ACCESS_TOKEN_TTL_SECONDS'),
+      this.configService.getOrThrow<string>('ACCESS_TOKEN_TTL_SECONDS'),
     );
 
     this.refreshTtlDays = Number(
-      this.config.getOrThrow<string>('REFRESH_TOKEN_TTL_DAYS'),
+      this.configService.getOrThrow<string>('REFRESH_TOKEN_TTL_DAYS'),
     );
 
     if (
@@ -52,13 +52,13 @@ export class AuthService {
 
   async register(dto: RegisterDto) {
     const email = dto.email;
-    const passwordHash = await this.passwords.hash(dto.password);
+    const passwordHash = await this.passwordService.hash(dto.password);
 
     const rawToken = randomBytes(32).toString('base64url');
     const tokenHash = this.hashToken(rawToken);
 
     try {
-      const user = await this.prisma.$transaction(async (tx) => {
+      const user = await this.prismaService.$transaction(async (tx) => {
         const createdUser = await tx.user.create({
           data: {
             email,
@@ -79,7 +79,7 @@ export class AuthService {
       });
 
       try {
-        await this.email.sendVerificationEmail(email, rawToken);
+        await this.emailService.sendVerificationEmail(email, rawToken);
       } catch (error) {
         // Never log the raw verification token.
         this.logger.error(
@@ -117,7 +117,7 @@ export class AuthService {
     const tokenHash = this.hashToken(rawToken);
     const now = new Date();
 
-    const verified = await this.prisma.$transaction(async (tx) => {
+    const verified = await this.prismaService.$transaction(async (tx) => {
       const token = await tx.emailVerificationToken.findFirst({
         where: {
           tokenHash,
@@ -167,7 +167,7 @@ export class AuthService {
   async login(emailInput: string, password: string) {
     const email = emailInput.trim().toLowerCase();
 
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prismaService.user.findUnique({
       where: { email },
       select: {
         id: true,
@@ -178,7 +178,7 @@ export class AuthService {
 
     // Verify even when the email does not exist, reducing
     // the timing difference between unknown and known accounts.
-    const validPassword = await this.passwords.verify(
+    const validPassword = await this.passwordService.verify(
       user?.passwordHash ?? '$argon2id$invalid-placeholder',
       password,
     );
@@ -187,7 +187,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    const activeTotp = await this.prisma.mfaFactor.findFirst({
+    const activeTotp = await this.prismaService.mfaFactor.findFirst({
       where: {
         userId: user.id,
         type: 'TOTP',
@@ -196,7 +196,7 @@ export class AuthService {
     });
 
     if (activeTotp) {
-      await this.rateLimitService.consume(
+      await this.mfaRateLimitService.consume(
         `mfa:challenge:create:user:${user.id}`,
         10,
         15 * 60 * 1000,
@@ -222,7 +222,7 @@ export class AuthService {
     userId: string,
     options: { mfaAuthenticated: boolean },
   ) {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prismaService.user.findUnique({
       where: { id: userId },
       select: { id: true, emailVerifiedAt: true },
     });
@@ -239,7 +239,7 @@ export class AuthService {
     const refreshToken = randomBytes(32).toString('base64url');
     const familyId = randomUUID();
 
-    const session = await this.prisma.$transaction(async (tx) => {
+    const session = await this.prismaService.$transaction(async (tx) => {
       const createdSession = await tx.session.create({
         data: {
           userId: user.id,
@@ -263,17 +263,17 @@ export class AuthService {
       return createdSession;
     });
 
-    const accessToken = await this.jwt.signAsync(
+    const accessToken = await this.jwtService.signAsync(
       {
         sub: user.id,
         sid: session.id,
         purpose: 'access',
       },
       {
-        secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
+        secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
         expiresIn: this.accessTtlSeconds,
-        issuer: this.config.getOrThrow<string>('JWT_ISSUER'),
-        audience: this.config.getOrThrow<string>('JWT_AUDIENCE'),
+        issuer: this.configService.getOrThrow<string>('JWT_ISSUER'),
+        audience: this.configService.getOrThrow<string>('JWT_AUDIENCE'),
       },
     );
 
@@ -289,7 +289,7 @@ export class AuthService {
     const challengeId = randomUUID();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-    await this.prisma.mfaChallenge.create({
+    await this.prismaService.mfaChallenge.create({
       data: {
         id: challengeId,
         userId,
@@ -297,9 +297,11 @@ export class AuthService {
       },
     });
 
-    const secret = this.config.getOrThrow<string>('JWT_MFA_CHALLENGE_SECRET');
+    const secret = this.configService.getOrThrow<string>(
+      'JWT_MFA_CHALLENGE_SECRET',
+    );
 
-    return this.jwt.signAsync(
+    return this.jwtService.signAsync(
       {
         sub: userId,
         purpose: 'mfa_challenge',
@@ -309,7 +311,7 @@ export class AuthService {
         secret,
         algorithm: 'HS256',
         expiresIn: '5m',
-        issuer: this.config.getOrThrow<string>('JWT_ISSUER'),
+        issuer: this.configService.getOrThrow<string>('JWT_ISSUER'),
         audience: 'tenantflow-mfa-challenge',
       },
     );
@@ -328,7 +330,7 @@ export class AuthService {
     const now = new Date();
     const nextToken = randomBytes(32).toString('base64url');
 
-    const outcome = await this.prisma.$transaction(async (tx) => {
+    const outcome = await this.prismaService.$transaction(async (tx) => {
       const current = await tx.refreshToken.findUnique({
         where: { tokenHash },
         select: {
@@ -424,16 +426,16 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const accessToken = await this.jwt.signAsync(
+    const accessToken = await this.jwtService.signAsync(
       {
         sub: outcome.userId,
         sid: outcome.sessionId,
       },
       {
-        secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
+        secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
         expiresIn: this.accessTtlSeconds,
-        issuer: this.config.getOrThrow<string>('JWT_ISSUER'),
-        audience: this.config.getOrThrow<string>('JWT_AUDIENCE'),
+        issuer: this.configService.getOrThrow<string>('JWT_ISSUER'),
+        audience: this.configService.getOrThrow<string>('JWT_AUDIENCE'),
       },
     );
 
@@ -448,7 +450,7 @@ export class AuthService {
   async logout(userId: string, sessionId: string) {
     const now = new Date();
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.prismaService.$transaction(async (tx) => {
       await tx.session.updateMany({
         where: {
           id: sessionId,
@@ -478,7 +480,7 @@ export class AuthService {
   async forgotPassword(dto: ForgotPasswordDto) {
     const email = dto.email.trim().toLowerCase();
 
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prismaService.user.findUnique({
       where: { email },
       select: { id: true, email: true },
     });
@@ -495,7 +497,7 @@ export class AuthService {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 15 * 60 * 1000);
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.prismaService.$transaction(async (tx) => {
       // Invalidate earlier outstanding reset tokens.
       await tx.passwordResetToken.updateMany({
         where: {
@@ -515,7 +517,7 @@ export class AuthService {
     });
 
     try {
-      await this.email.sendPasswordResetEmail(user.email, rawToken);
+      await this.emailService.sendPasswordResetEmail(user.email, rawToken);
     } catch (error) {
       this.logger.error(
         'Password reset email delivery failed',
@@ -531,9 +533,9 @@ export class AuthService {
   async resetPassword(dto: ResetPasswordDto) {
     const tokenHash = this.hashToken(dto.token);
     const now = new Date();
-    const passwordHash = await this.passwords.hash(dto.newPassword);
+    const passwordHash = await this.passwordService.hash(dto.newPassword);
 
-    const reset = await this.prisma.$transaction(async (tx) => {
+    const reset = await this.prismaService.$transaction(async (tx) => {
       const token = await tx.passwordResetToken.findFirst({
         where: {
           tokenHash,
@@ -609,7 +611,7 @@ export class AuthService {
   }
 
   async listSessions(userId: string, currentSessionId: string) {
-    const sessions = await this.prisma.session.findMany({
+    const sessions = await this.prismaService.session.findMany({
       where: {
         userId,
         status: 'ACTIVE',
@@ -636,7 +638,7 @@ export class AuthService {
   async revokeSession(userId: string, sessionId: string) {
     const now = new Date();
 
-    const revoked = await this.prisma.$transaction(async (tx) => {
+    const revoked = await this.prismaService.$transaction(async (tx) => {
       const result = await tx.session.updateMany({
         where: {
           id: sessionId,
@@ -673,7 +675,7 @@ export class AuthService {
   async logoutAllSessions(userId: string) {
     const now = new Date();
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.prismaService.$transaction(async (tx) => {
       const activeSessions = await tx.session.findMany({
         where: {
           userId,

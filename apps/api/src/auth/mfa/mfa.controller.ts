@@ -25,7 +25,7 @@ export class MfaController {
   constructor(
     private readonly mfaService: MfaService,
     private readonly authService: AuthService,
-    private readonly rateLimitService: MfaRateLimitService,
+    private readonly mfaRateLimitService: MfaRateLimitService,
   ) {}
 
   @Post('enroll')
@@ -48,7 +48,7 @@ export class MfaController {
   ) {
     const ip = req.ip;
 
-    await this.rateLimitService.consume(
+    await this.mfaRateLimitService.consume(
       `mfa:verify:ip:${ip}`,
       20,
       15 * 60 * 1000,

@@ -26,11 +26,11 @@ interface MfaChallengePayload extends JwtPayload {
 @Injectable()
 export class MfaService {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly crypto: MfaCryptoService,
-    private readonly config: ConfigService,
-    private readonly jwt: JwtService,
-    private readonly rateLimitService: MfaRateLimitService,
+    private readonly prismaService: PrismaService,
+    private readonly mfaCryptoService: MfaCryptoService,
+    private readonly configService: ConfigService,
+    private readonly jwtService: JwtService,
+    private readonly mfaRateLimitService: MfaRateLimitService,
   ) {}
 
   private hashRecoveryCode(code: string): string {
@@ -40,7 +40,7 @@ export class MfaService {
   }
 
   async enrollTotp(userId: string) {
-    const activeFactor = await this.prisma.mfaFactor.findFirst({
+    const activeFactor = await this.prismaService.mfaFactor.findFirst({
       where: {
         userId,
         type: 'TOTP',
@@ -54,9 +54,9 @@ export class MfaService {
     }
 
     const secret = authenticator.generateSecret();
-    const issuer = this.config.getOrThrow<string>('MFA_ISSUER');
+    const issuer = this.configService.getOrThrow<string>('MFA_ISSUER');
 
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prismaService.user.findUnique({
       where: { id: userId },
       select: { email: true },
     });
@@ -70,7 +70,7 @@ export class MfaService {
     const qrCodeDataUrl = await QRCode.toDataURL(otpAuthUrl);
 
     // Replace any abandoned pending enrollment.
-    await this.prisma.$transaction(async (tx) => {
+    await this.prismaService.$transaction(async (tx) => {
       await tx.mfaFactor.deleteMany({
         where: {
           userId,
@@ -84,7 +84,7 @@ export class MfaService {
           userId,
           type: 'TOTP',
           status: 'PENDING',
-          secretEncrypted: this.crypto.encrypt(secret),
+          secretEncrypted: this.mfaCryptoService.encrypt(secret),
         },
       });
     });
@@ -103,7 +103,7 @@ export class MfaService {
       throw new BadRequestException('Invalid verification code');
     }
 
-    const factor = await this.prisma.mfaFactor.findFirst({
+    const factor = await this.prismaService.mfaFactor.findFirst({
       where: {
         userId,
         type: 'TOTP',
@@ -116,7 +116,7 @@ export class MfaService {
       throw new BadRequestException('No pending TOTP enrollment');
     }
 
-    const secret = this.crypto.decrypt(factor.secretEncrypted);
+    const secret = this.mfaCryptoService.decrypt(factor.secretEncrypted);
 
     if (!authenticator.check(code, secret)) {
       throw new UnauthorizedException('Invalid verification code');
@@ -126,7 +126,7 @@ export class MfaService {
       randomBytes(8).toString('hex').toUpperCase(),
     );
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.prismaService.$transaction(async (tx) => {
       const activated = await tx.mfaFactor.updateMany({
         where: {
           id: factor.id,
@@ -159,17 +159,19 @@ export class MfaService {
   }
 
   async verifyChallenge(dto: VerifyMfaChallengeDto): Promise<string> {
-    const secret = this.config.getOrThrow<string>('JWT_MFA_CHALLENGE_SECRET');
+    const secret = this.configService.getOrThrow<string>(
+      'JWT_MFA_CHALLENGE_SECRET',
+    );
 
     let payload: MfaChallengePayload;
 
     try {
-      payload = await this.jwt.verifyAsync<MfaChallengePayload>(
+      payload = await this.jwtService.verifyAsync<MfaChallengePayload>(
         dto.challengeToken,
         {
           secret,
           algorithms: ['HS256'],
-          issuer: this.config.getOrThrow<string>('JWT_ISSUER'),
+          issuer: this.configService.getOrThrow<string>('JWT_ISSUER'),
           audience: 'tenantflow-mfa-challenge',
         },
       );
@@ -188,13 +190,13 @@ export class MfaService {
     const userId = payload.sub;
     const challengeId = payload.jti;
 
-    await this.rateLimitService.consume(
+    await this.mfaRateLimitService.consume(
       `mfa:verify:user:${userId}`,
       5,
       15 * 60 * 1000,
     );
 
-    const factor = await this.prisma.mfaFactor.findFirst({
+    const factor = await this.prismaService.mfaFactor.findFirst({
       where: {
         userId,
         type: 'TOTP',
@@ -214,7 +216,7 @@ export class MfaService {
       throw new UnauthorizedException('Invalid MFA method');
     }
 
-    const consumed = await this.prisma.mfaChallenge.updateMany({
+    const consumed = await this.prismaService.mfaChallenge.updateMany({
       where: {
         id: challengeId,
         userId,
@@ -254,7 +256,7 @@ export class MfaService {
       throw new UnauthorizedException('MFA factor is not active');
     }
 
-    const secret = this.crypto.decrypt(factor.secretEncrypted);
+    const secret = this.mfaCryptoService.decrypt(factor.secretEncrypted);
     const delta = authenticator.checkDelta(code, secret);
 
     if (delta === null) {
@@ -263,7 +265,7 @@ export class MfaService {
 
     const acceptedStep = Math.floor(Date.now() / 30_000) + delta;
 
-    const result = await this.prisma.mfaFactor.updateMany({
+    const result = await this.prismaService.mfaFactor.updateMany({
       where: {
         id: factor.id,
         userId,
@@ -294,7 +296,7 @@ export class MfaService {
 
     const codeHash = this.hashRecoveryCode(normalized);
 
-    const result = await this.prisma.recoveryCode.updateMany({
+    const result = await this.prismaService.recoveryCode.updateMany({
       where: {
         mfaFactorId,
         codeHash,

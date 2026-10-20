@@ -14,15 +14,15 @@ interface AccessTokenPayload {
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
-    config: ConfigService,
-    private readonly prisma: PrismaService,
+    configService: ConfigService,
+    private readonly prismaService: PrismaService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: config.getOrThrow<string>('JWT_ACCESS_SECRET'),
-      issuer: config.getOrThrow<string>('JWT_ISSUER'),
-      audience: config.getOrThrow<string>('JWT_AUDIENCE'),
+      secretOrKey: configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
+      issuer: configService.getOrThrow<string>('JWT_ISSUER'),
+      audience: configService.getOrThrow<string>('JWT_AUDIENCE'),
     });
   }
 
@@ -31,7 +31,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException();
     }
 
-    const session = await this.prisma.session.findFirst({
+    const session = await this.prismaService.session.findFirst({
       where: {
         id: payload.sid,
         userId: payload.sub,

@@ -9,8 +9,8 @@ import { REDIS_CLIENT, RedisService } from './redis.service.js';
     {
       provide: REDIS_CLIENT,
       inject: [ConfigService],
-      useFactory: (config: ConfigService) =>
-        new Redis(config.getOrThrow<string>('REDIS_URL'), {
+      useFactory: (configService: ConfigService) =>
+        new Redis(configService.getOrThrow<string>('REDIS_URL'), {
           lazyConnect: true,
           maxRetriesPerRequest: 1,
           retryStrategy: (times) => Math.min(times * 200, 2000),
