@@ -13,6 +13,7 @@ import * as QRCode from 'qrcode';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { VerifyMfaChallengeDto } from './dto/verify-mfa-challenge.dto.js';
 import { MfaCryptoService } from './mfa-crypto.service.js';
+import { MfaRateLimitService } from './mfa-rate-limit.service.js';
 
 const RECOVERY_CODE_COUNT = 10;
 
@@ -29,6 +30,7 @@ export class MfaService {
     private readonly crypto: MfaCryptoService,
     private readonly config: ConfigService,
     private readonly jwt: JwtService,
+    private readonly rateLimitService: MfaRateLimitService,
   ) {}
 
   private hashRecoveryCode(code: string): string {
@@ -185,6 +187,12 @@ export class MfaService {
 
     const userId = payload.sub;
     const challengeId = payload.jti;
+
+    await this.rateLimitService.consume(
+      `mfa:verify:user:${userId}`,
+      5,
+      15 * 60 * 1000,
+    );
 
     const factor = await this.prisma.mfaFactor.findFirst({
       where: {

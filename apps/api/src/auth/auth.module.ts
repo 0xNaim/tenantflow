@@ -9,6 +9,7 @@ import { AuthService } from './auth.service.js';
 import { EmailService } from './email.service.js';
 import { JwtStrategy } from './jwt.strategy.js';
 import { MfaCryptoService } from './mfa/mfa-crypto.service.js';
+import { MfaRateLimitService } from './mfa/mfa-rate-limit.service.js';
 import { MfaController } from './mfa/mfa.controller.js';
 import { MfaService } from './mfa/mfa.service.js';
 import { PasswordService } from './password.service.js';
@@ -34,6 +35,7 @@ import { PasswordService } from './password.service.js';
     JwtStrategy,
     MfaService,
     MfaCryptoService,
+    MfaRateLimitService,
   ],
   controllers: [AuthController, MfaController],
   exports: [AuthService],

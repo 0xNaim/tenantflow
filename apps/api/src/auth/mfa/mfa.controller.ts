@@ -10,6 +10,7 @@ import type { Request } from 'express';
 import { AuthService } from '../auth.service.js';
 import { ConfirmTotpDto } from './dto/confirm-totp.dto.js';
 import { VerifyMfaChallengeDto } from './dto/verify-mfa-challenge.dto.js';
+import { MfaRateLimitService } from './mfa-rate-limit.service.js';
 import { MfaService } from './mfa.service.js';
 
 interface AuthenticatedRequest extends Request {
@@ -24,6 +25,7 @@ export class MfaController {
   constructor(
     private readonly mfaService: MfaService,
     private readonly authService: AuthService,
+    private readonly rateLimitService: MfaRateLimitService,
   ) {}
 
   @Post('enroll')
@@ -40,7 +42,18 @@ export class MfaController {
 
   @Post('challenge/verify')
   @HttpCode(HttpStatus.OK)
-  async verifyChallenge(@Body() dto: VerifyMfaChallengeDto) {
+  async verifyChallenge(
+    @Body() dto: VerifyMfaChallengeDto,
+    @Req() req: Request,
+  ) {
+    const ip = req.ip;
+
+    await this.rateLimitService.consume(
+      `mfa:verify:ip:${ip}`,
+      20,
+      15 * 60 * 1000,
+    );
+
     const userId = await this.mfaService.verifyChallenge(dto);
 
     return this.authService.completeMfaLogin(userId);

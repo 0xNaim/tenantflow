@@ -14,6 +14,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
 import { ResetPasswordDto } from './dto/reset-password.dto.js';
 import { EmailService } from './email.service.js';
+import { MfaRateLimitService } from './mfa/mfa-rate-limit.service.js';
 import { PasswordService } from './password.service.js';
 
 @Injectable()
@@ -29,6 +30,7 @@ export class AuthService {
     private readonly email: EmailService,
     private readonly config: ConfigService,
     private readonly jwt: JwtService,
+    private readonly rateLimitService: MfaRateLimitService,
   ) {
     this.accessTtlSeconds = Number(
       this.config.getOrThrow<string>('ACCESS_TOKEN_TTL_SECONDS'),
@@ -194,6 +196,12 @@ export class AuthService {
     });
 
     if (activeTotp) {
+      await this.rateLimitService.consume(
+        `mfa:challenge:create:user:${user.id}`,
+        10,
+        15 * 60 * 1000,
+      );
+
       const challengeToken = await this.createMfaChallenge(user.id);
 
       return {
