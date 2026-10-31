@@ -38,4 +38,10 @@ export class MfaRateLimitService {
       );
     }
   }
+
+  async reset(key: string): Promise<void> {
+    const redis = this.redisService.getClient();
+
+    await redis.del(key);
+  }
 }

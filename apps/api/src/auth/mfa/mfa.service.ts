@@ -30,7 +30,7 @@ export class MfaService {
     private readonly mfaCryptoService: MfaCryptoService,
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
-    private readonly mfaRateLimitService: MfaRateLimitService,
+    private readonly rateLimitService: MfaRateLimitService,
   ) {}
 
   private hashRecoveryCode(code: string): string {
@@ -190,7 +190,7 @@ export class MfaService {
     const userId = payload.sub;
     const challengeId = payload.jti;
 
-    await this.mfaRateLimitService.consume(
+    await this.rateLimitService.consume(
       `mfa:verify:user:${userId}`,
       5,
       15 * 60 * 1000,

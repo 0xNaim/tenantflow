@@ -30,7 +30,7 @@ export class AuthService {
     private readonly emailService: EmailService,
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
-    private readonly mfaRateLimitService: MfaRateLimitService,
+    private readonly rateLimitService: MfaRateLimitService,
   ) {
     this.accessTtlSeconds = Number(
       this.configService.getOrThrow<string>('ACCESS_TOKEN_TTL_SECONDS'),
@@ -167,6 +167,8 @@ export class AuthService {
   async login(emailInput: string, password: string) {
     const email = emailInput.trim().toLowerCase();
 
+    const loginFailureKey = this.getLoginFailureKey(email);
+
     const user = await this.prismaService.user.findUnique({
       where: { email },
       select: {
@@ -183,7 +185,20 @@ export class AuthService {
       password,
     );
 
-    if (!user || !validPassword || !user.emailVerifiedAt) {
+    if (!user || !validPassword) {
+      await this.rateLimitService.consume(
+        loginFailureKey,
+        5,
+        15 * 60 * 1000,
+      );
+
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    // Password was correct; clear earlier failed attempts for this account.
+    await this.rateLimitService.reset(loginFailureKey);
+
+    if (!user.emailVerifiedAt) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
@@ -196,7 +211,7 @@ export class AuthService {
     });
 
     if (activeTotp) {
-      await this.mfaRateLimitService.consume(
+      await this.rateLimitService.consume(
         `mfa:challenge:create:user:${user.id}`,
         10,
         15 * 60 * 1000,
@@ -315,6 +330,16 @@ export class AuthService {
         audience: 'tenantflow-mfa-challenge',
       },
     );
+  }
+
+  private getLoginFailureKey(email: string): string {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const emailHash = createHash('sha256')
+      .update(normalizedEmail)
+      .digest('hex');
+
+    return `auth:login:failure:${emailHash}`;
   }
 
   async refresh(rawToken: string) {

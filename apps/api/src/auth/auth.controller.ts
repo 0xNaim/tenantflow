@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import type { Request } from 'express';
 import { AuthService } from './auth.service.js';
 import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
 import { LoginDto } from './dto/login.dto.js';
@@ -19,11 +20,15 @@ import { RegisterDto } from './dto/register.dto.js';
 import { ResetPasswordDto } from './dto/reset-password.dto.js';
 import { VerifyEmailDto } from './dto/verify-email.dto.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
+import { MfaRateLimitService } from './mfa/mfa-rate-limit.service.js';
 
 @UseGuards(ThrottlerGuard)
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly rateLimitService: MfaRateLimitService,
+  ) {}
 
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('register')
@@ -42,7 +47,13 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  login(@Body() dto: LoginDto) {
+  async login(@Body() dto: LoginDto, @Req() req: Request) {
+    await this.rateLimitService.consume(
+      `auth:login:ip:${req.ip}`,
+      30,
+      15 * 60 * 1000,
+    );
+
     return this.authService.login(dto.email, dto.password);
   }
 
