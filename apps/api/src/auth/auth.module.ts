@@ -13,11 +13,13 @@ import { MfaRateLimitService } from './mfa/mfa-rate-limit.service.js';
 import { MfaController } from './mfa/mfa.controller.js';
 import { MfaService } from './mfa/mfa.service.js';
 import { PasswordService } from './password.service.js';
+import { AuditModule } from '../audit/audit.module.js';
 
 @Module({
   imports: [
     ConfigModule,
     PrismaModule,
+    AuditModule,
     JwtModule.register({}),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     ThrottlerModule.forRoot([

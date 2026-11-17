@@ -56,6 +56,10 @@ export class MfaController {
 
     const userId = await this.mfaService.verifyChallenge(dto);
 
-    return this.authService.completeMfaLogin(userId);
+    return this.authService.completeMfaLogin(userId, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent') ?? undefined,
+      requestId: undefined,
+    });
   }
 }

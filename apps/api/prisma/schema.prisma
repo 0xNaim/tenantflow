@@ -313,15 +313,23 @@ model ProjectMember {
 }
 
 model AuditLog {
-  id           String   @id @default(cuid())
-  tenantId     String?
-  actorUserId  String?
-  action       String
+  id String @id @default(cuid())
+
+  tenantId    String?
+  actorUserId String?
+
+  action String
+  status String
+
   resourceType String?
   resourceId   String?
-  requestId    String?
-  metadata     Json?
-  createdAt    DateTime @default(now())
+
+  requestId String?
+  ipAddress String?
+  userAgent String?
+
+  metadata  Json?
+  createdAt DateTime @default(now())
 
   tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
@@ -330,4 +338,5 @@ model AuditLog {
   @@index([tenantId, createdAt])
   @@index([actorUserId, createdAt])
   @@index([resourceType, resourceId])
+  @@index([action, createdAt])
 }

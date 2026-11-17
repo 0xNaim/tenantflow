@@ -7,6 +7,7 @@ import { RedisModule } from './redis/redis.module.js';
 import { TenancyModule } from './tenancy/tenancy.module.js';
 import { ProjectsModule } from './projects/projects.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { AuditModule } from './audit/audit.module.js';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { AuthModule } from './auth/auth.module.js';
     TenancyModule,
     ProjectsModule,
     AuthModule,
+    AuditModule,
   ],
 })
 export class AppModule {}

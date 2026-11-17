@@ -54,7 +54,11 @@ export class AuthController {
       15 * 60 * 1000,
     );
 
-    return this.authService.login(dto.email, dto.password);
+    return this.authService.login(dto, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent') ?? undefined,
+      requestId: undefined,
+    });
   }
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })

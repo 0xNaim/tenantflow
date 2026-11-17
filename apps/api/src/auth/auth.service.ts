@@ -9,13 +9,21 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import { createHash, randomBytes, randomUUID } from 'crypto';
+import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
+import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
 import { ResetPasswordDto } from './dto/reset-password.dto.js';
 import { EmailService } from './email.service.js';
 import { MfaRateLimitService } from './mfa/mfa-rate-limit.service.js';
 import { PasswordService } from './password.service.js';
+
+interface AuthRequestContext {
+  ipAddress?: string;
+  userAgent?: string;
+  requestId?: string;
+}
 
 @Injectable()
 export class AuthService {
@@ -31,6 +39,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
     private readonly rateLimitService: MfaRateLimitService,
+    private readonly auditService: AuditService,
   ) {
     this.accessTtlSeconds = Number(
       this.configService.getOrThrow<string>('ACCESS_TOKEN_TTL_SECONDS'),
@@ -164,8 +173,9 @@ export class AuthService {
     return createHash('sha256').update(token).digest('hex');
   }
 
-  async login(emailInput: string, password: string) {
-    const email = emailInput.trim().toLowerCase();
+  async login(dto: LoginDto, context: AuthRequestContext) {
+    const email = dto.email.trim().toLowerCase();
+    const password = dto.password;
 
     const loginFailureKey = this.getLoginFailureKey(email);
 
@@ -178,19 +188,25 @@ export class AuthService {
       },
     });
 
-    // Verify even when the email does not exist, reducing
-    // the timing difference between unknown and known accounts.
+    // Verify even when the email does not exist, reducing the timing difference between unknown and known accounts.
     const validPassword = await this.passwordService.verify(
       user?.passwordHash ?? '$argon2id$invalid-placeholder',
       password,
     );
 
     if (!user || !validPassword) {
-      await this.rateLimitService.consume(
-        loginFailureKey,
-        5,
-        15 * 60 * 1000,
-      );
+      await this.auditService.log({
+        action: 'LOGIN_FAILURE',
+        status: 'FAILURE',
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        requestId: context.requestId,
+        metadata: {
+          reason: 'INVALID_CREDENTIALS',
+        },
+      });
+
+      await this.rateLimitService.consume(loginFailureKey, 5, 15 * 60 * 1000);
 
       throw new UnauthorizedException('Invalid email or password');
     }
@@ -219,6 +235,15 @@ export class AuthService {
 
       const challengeToken = await this.createMfaChallenge(user.id);
 
+      await this.auditService.log({
+        actorUserId: user.id,
+        action: 'MFA_CHALLENGE_CREATED',
+        status: 'SUCCESS',
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        requestId: context.requestId,
+      });
+
       return {
         requiresMfa: true,
         challengeToken,
@@ -226,16 +251,17 @@ export class AuthService {
       };
     }
 
-    return this.completeLogin(user.id, { mfaAuthenticated: false });
+    return this.completeLogin(user.id, { mfaAuthenticated: false }, context);
   }
 
-  async completeMfaLogin(userId: string) {
-    return this.completeLogin(userId, { mfaAuthenticated: true });
+  async completeMfaLogin(userId: string, context: AuthRequestContext = {}) {
+    return this.completeLogin(userId, { mfaAuthenticated: true }, context);
   }
 
   private async completeLogin(
     userId: string,
     options: { mfaAuthenticated: boolean },
+    context: AuthRequestContext = {},
   ) {
     const user = await this.prismaService.user.findUnique({
       where: { id: userId },
@@ -273,6 +299,15 @@ export class AuthService {
           tokenHash: this.hashToken(refreshToken),
           expiresAt: sessionExpiresAt,
         },
+      });
+
+      await this.auditService.log({
+        actorUserId: userId,
+        action: 'LOGIN_SUCCESS',
+        status: 'SUCCESS',
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        requestId: context.requestId,
       });
 
       return createdSession;
