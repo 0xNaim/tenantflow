@@ -10,6 +10,7 @@ import type { JwtPayload } from 'jsonwebtoken';
 import { createHash, randomBytes } from 'node:crypto';
 import { authenticator } from 'otplib';
 import * as QRCode from 'qrcode';
+import { AuditAction, AuditService } from '../../audit/audit.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { VerifyMfaChallengeDto } from './dto/verify-mfa-challenge.dto.js';
 import { MfaCryptoService } from './mfa-crypto.service.js';
@@ -31,6 +32,7 @@ export class MfaService {
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
     private readonly rateLimitService: MfaRateLimitService,
+    private readonly auditService: AuditService,
   ) {}
 
   private hashRecoveryCode(code: string): string {
@@ -208,12 +210,25 @@ export class MfaService {
       throw new UnauthorizedException('MFA factor is not active');
     }
 
-    if (dto.method === 'totp') {
-      await this.verifyTotpOnce(userId, factor, dto.code);
-    } else if (dto.method === 'recovery') {
-      await this.consumeRecoveryCode(factor.id, dto.code);
-    } else {
-      throw new UnauthorizedException('Invalid MFA method');
+    try {
+      if (dto.method === 'totp') {
+        await this.verifyTotpOnce(userId, factor, dto.code);
+      } else if (dto.method === 'recovery') {
+        await this.consumeRecoveryCode(userId, dto.code);
+      } else {
+        throw new UnauthorizedException('Invalid MFA method');
+      }
+    } catch (error) {
+      await this.auditService.log({
+        actorUserId: userId,
+        action: AuditAction.MFA_VERIFICATION_FAILURE,
+        status: 'FAILURE',
+        metadata: {
+          method: dto.method,
+        },
+      });
+
+      throw error;
     }
 
     const consumed = await this.prismaService.mfaChallenge.updateMany({
@@ -235,6 +250,15 @@ export class MfaService {
         'MFA challenge has expired or already been used',
       );
     }
+
+    await this.auditService.log({
+      actorUserId: userId,
+      action: AuditAction.MFA_VERIFICATION_SUCCESS,
+      status: 'SUCCESS',
+      metadata: {
+        method: dto.method,
+      },
+    });
 
     return userId;
   }

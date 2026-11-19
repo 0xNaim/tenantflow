@@ -130,6 +130,6 @@ export class AuthController {
       user: { userId: string; sessionId: string };
     },
   ) {
-    return this.authService.logoutAllSessions(req.user.userId);
+    return this.authService.revokeAllSessions(req.user.userId);
   }
 }

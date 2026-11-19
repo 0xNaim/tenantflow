@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import { createHash, randomBytes, randomUUID } from 'crypto';
-import { AuditService } from '../audit/audit.service.js';
+import { AuditAction, AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
 import { LoginDto } from './dto/login.dto.js';
@@ -534,6 +534,15 @@ export class AuthService {
       });
     });
 
+    await this.auditService.log({
+      actorUserId: userId,
+      action: AuditAction.LOGOUT,
+      status: 'SUCCESS',
+      metadata: {
+        sessionId,
+      },
+    });
+
     return { message: 'Logged out successfully' };
   }
 
@@ -660,6 +669,15 @@ export class AuthService {
         });
       }
 
+      await this.auditService.log({
+        actorUserId: token.userId,
+        action: AuditAction.PASSWORD_RESET_SUCCESS,
+        status: 'SUCCESS',
+        metadata: {
+          sessionsRevoked: true,
+        },
+      });
+
       return true;
     });
 
@@ -729,10 +747,19 @@ export class AuthService {
       throw new NotFoundException('Session not found');
     }
 
+    await this.auditService.log({
+      actorUserId: userId,
+      action: AuditAction.SESSION_REVOKED,
+      status: 'SUCCESS',
+      metadata: {
+        sessionId,
+      },
+    });
+
     return { message: 'Session revoked successfully' };
   }
 
-  async logoutAllSessions(userId: string) {
+  async revokeAllSessions(userId: string) {
     const now = new Date();
 
     await this.prismaService.$transaction(async (tx) => {
@@ -766,6 +793,12 @@ export class AuthService {
           data: { revokedAt: now },
         });
       }
+    });
+
+    await this.auditService.log({
+      actorUserId: userId,
+      action: AuditAction.LOGOUT_ALL,
+      status: 'SUCCESS',
     });
 
     return { message: 'All sessions revoked successfully' };
