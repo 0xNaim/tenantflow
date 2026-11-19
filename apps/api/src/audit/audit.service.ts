@@ -38,7 +38,7 @@ export class AuditService {
   constructor(private readonly prismaService: PrismaService) {}
 
   async log(input: CreateAuditLogInput): Promise<void> {
-    await this.prismaService.auditLog.create({
+    await this.prismaService.auditLog.createMany({
       data: {
         actorUserId: input.actorUserId,
         tenantId: input.tenantId,

@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 interface AccessTokenPayload {
   sub: string;
   sid: string;
+  purpose?: string;
   iat?: number;
   exp?: number;
 }
@@ -23,11 +24,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       secretOrKey: configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
       issuer: configService.getOrThrow<string>('JWT_ISSUER'),
       audience: configService.getOrThrow<string>('JWT_AUDIENCE'),
+      algorithms: ['HS256'],
     });
   }
 
   async validate(payload: AccessTokenPayload) {
-    if (!payload.sub || !payload.sid) {
+    if (!payload.sub || !payload.sid || payload.purpose !== 'access') {
       throw new UnauthorizedException();
     }
 

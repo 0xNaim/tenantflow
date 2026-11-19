@@ -490,6 +490,7 @@ export class AuthService {
       {
         sub: outcome.userId,
         sid: outcome.sessionId,
+        purpose: 'access',
       },
       {
         secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),

@@ -8,6 +8,7 @@ import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { EmailService } from './email.service.js';
 import { JwtStrategy } from './jwt.strategy.js';
+import { MfaChallengeCleanupService } from './mfa/mfa-challenge-cleanup.service.js';
 import { MfaCryptoService } from './mfa/mfa-crypto.service.js';
 import { MfaRateLimitService } from './mfa/mfa-rate-limit.service.js';
 import { MfaController } from './mfa/mfa.controller.js';
@@ -38,6 +39,7 @@ import { AuditModule } from '../audit/audit.module.js';
     MfaService,
     MfaCryptoService,
     MfaRateLimitService,
+    MfaChallengeCleanupService,
   ],
   controllers: [AuthController, MfaController],
   exports: [AuthService],
