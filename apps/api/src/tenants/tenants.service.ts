@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
@@ -11,7 +12,9 @@ import {
   PermissionKey,
 } from '../authorization/permissions.constants.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { TenantTransactionService } from '../tenancy/tenant-transaction.service.js';
 import { CreateTenantDto } from './dto/create-tenant.dto.js';
+import { UpdateTenantDto } from './dto/update-tenant.dto.js';
 
 const OWNER_PERMISSIONS = Object.values(PERMISSIONS);
 
@@ -35,7 +38,10 @@ const MEMBER_PERMISSIONS: PermissionKey[] = [
 
 @Injectable()
 export class TenantsService {
-  constructor(private readonly prismaService: PrismaService) {}
+  constructor(
+    private readonly prismaService: PrismaService,
+    private readonly tenantTransactionService: TenantTransactionService,
+  ) {}
 
   async create(userId: string, dto: CreateTenantDto) {
     const name = dto.name.trim();
@@ -240,5 +246,156 @@ export class TenantsService {
       .replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
+  }
+
+  async findAll(userId: string) {
+    return this.prismaService.$transaction(async (tx) => {
+      await tx.$queryRaw`
+      SELECT set_config('app.user_id', ${userId}, true)
+    `;
+
+      const memberships = await tx.membership.findMany({
+        where: {
+          userId,
+          status: 'ACTIVE',
+        },
+        select: {
+          id: true,
+          createdAt: true,
+          tenant: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'asc',
+        },
+      });
+
+      return memberships.map((membership) => ({
+        ...membership.tenant,
+        membership: {
+          id: membership.id,
+          joinedAt: membership.createdAt,
+        },
+      }));
+    });
+  }
+
+  async findOne(userId: string, tenantId: string) {
+    return this.tenantTransactionService.withTenantContext(
+      userId,
+      tenantId,
+      async (tx) => {
+        const tenant = await tx.tenant.findUnique({
+          where: { id: tenantId },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+
+        if (!tenant) {
+          throw new NotFoundException('Tenant not found');
+        }
+
+        return tenant;
+      },
+    );
+  }
+
+  async update(userId: string, tenantId: string, dto: UpdateTenantDto) {
+    const name = dto.name.trim();
+
+    if (!name) {
+      throw new BadRequestException('Tenant name is required');
+    }
+
+    return this.tenantTransactionService.withTenantContext(
+      userId,
+      tenantId,
+      async (tx) => {
+        // Check whether the current member has tenant:update permission.
+        const membership = await tx.membership.findFirst({
+          where: {
+            userId,
+            tenantId,
+            status: 'ACTIVE',
+          },
+          select: {
+            roles: {
+              select: {
+                role: {
+                  select: {
+                    permissions: {
+                      where: {
+                        permission: {
+                          is: {
+                            key: PERMISSIONS.TENANT_UPDATE,
+                          },
+                        },
+                      },
+                      select: {
+                        permissionId: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        const canUpdateTenant = membership?.roles.some(
+          (membershipRole) => membershipRole.role.permissions.length > 0,
+        );
+
+        if (!canUpdateTenant) {
+          throw new ForbiddenException(
+            'You do not have permission to update this tenant',
+          );
+        }
+
+        const tenant = await tx.tenant.update({
+          where: {
+            id: tenantId,
+          },
+          data: {
+            name,
+          },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            tenantId,
+            actorUserId: userId,
+            action: 'tenant.updated',
+            status: 'SUCCESS',
+            resourceType: 'TENANT',
+            resourceId: tenantId,
+            metadata: {
+              updatedFields: ['name'],
+            },
+          },
+        });
+
+        return tenant;
+      },
+    );
   }
 }

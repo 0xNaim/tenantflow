@@ -8,6 +8,8 @@ export const PERMISSIONS = {
   MEMBER_INVITE: 'member:invite',
   MEMBER_UPDATE_ROLE: 'member:update-role',
 
+  TENANT_UPDATE: 'tenant:update',
+
   ROLE_READ: 'role:read',
   ROLE_CREATE: 'role:create',
   ROLE_UPDATE: 'role:update',
