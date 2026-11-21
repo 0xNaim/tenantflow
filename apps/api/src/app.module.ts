@@ -2,13 +2,14 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import Joi from 'joi';
+import { AuditModule } from './audit/audit.module.js';
+import { AuthModule } from './auth/auth.module.js';
 import { HealthModule } from './health/health.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
+import { ProjectsModule } from './projects/projects.module.js';
 import { RedisModule } from './redis/redis.module.js';
 import { TenancyModule } from './tenancy/tenancy.module.js';
-import { ProjectsModule } from './projects/projects.module.js';
-import { AuthModule } from './auth/auth.module.js';
-import { AuditModule } from './audit/audit.module.js';
+import { TenantsModule } from './tenants/tenants.module.js';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { AuditModule } from './audit/audit.module.js';
     ProjectsModule,
     AuthModule,
     AuditModule,
+    TenantsModule,
   ],
 })
 export class AppModule {}

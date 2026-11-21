@@ -10,7 +10,9 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   engine: "classic",
+  // CLI (migrate, studio, ...) runs as the owner role. The runtime client uses
+  // DATABASE_URL (restricted, RLS-enforced tenantflow_app) from schema.prisma.
   datasource: {
-    url: env("DATABASE_URL"),
+    url: env("DIRECT_URL"),
   },
 });
